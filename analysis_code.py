@@ -32,7 +32,7 @@ control_dat = []
 for stim in stimuli:
     exec('dig_dat = dat.root.spike_trains.%s' %stim)
     # Firing rate indexed by time according to assumption 4)
-    control_dat.append(dig_dat.spike_array[np.where(dig_dat.laser_durations[:]==0)[0],:,3000:5000])
+    control_dat.append(dig_dat.spike_array[np.where(dig_dat.laser_durations[:]==0)[0],:,2500:5000])
     # Y u break my heart python :(   </3
 
 # List of spikes from every neuron for 4 tastes
@@ -62,118 +62,155 @@ for taste_ind in range(len(train_spikes)):
         for trial in range(train_spikes[0].shape[1]):
             for time_bin in range(train_rate_array.shape[2]):
                 #(pdb)
-                train_rate_array[nrn,trial,time_bin] = np.sum(train_spikes[taste_ind][nrn,trial,(time_bin*step):(time_bin*step)+window])
-                test_rate_array[nrn,trial,time_bin] = np.sum(test_spikes[taste_ind][nrn,trial,(time_bin*step):(time_bin*step)+window])
+                # 0.01 added to avoid non-zero values because we're using log-likelihood
+                train_rate_array[nrn,trial,time_bin] = np.sum(train_spikes[taste_ind][nrn,trial,(time_bin*step):(time_bin*step)+window]) + 0.01
+                test_rate_array[nrn,trial,time_bin] = np.sum(test_spikes[taste_ind][nrn,trial,(time_bin*step):(time_bin*step)+window]) + 0.01
     
     train_rate.append(train_rate_array)
     test_rate.append(test_rate_array)
      
-## Test plots for spikes to firing rate  
-#inds = [3,1]
-#spikes = train_spikes[0][inds[0],inds[1],:]
-#rate = train_rate[0][inds[0],inds[1],:]
-#rate2 = sig.resample(rate,spikes.shape[0])
-#plt.plot(spikes)
-#plt.plot(rate2)
 
-# For training set, for all tastes, for every neuron, calculate mean and standard deviation
-# These will be used as starting parameters for optimization
-#train_params = []
-#for taste_ind in range(len(train_spikes)):
-#    train_params_temp = np.zeros((train_spikes[0].shape[0],2))
-#    for nrn in range(train_spikes[0].shape[0]):
-#        train_params_temp[nrn,0] = np.mean(train_rate[taste_ind][nrn,:,:])
-#        train_params_temp[nrn,1] = np.std(train_rate[taste_ind][nrn,:,:])
-#
-#    train_params.append(train_params_temp)
-    
-# Now perform, maximum likelihood fit of gamma function for each neuron for each taste
-    
+# Creat functions to use for data fitting   
+# Probably a good idea to define a class for this but I'm not good at that :P
 temp_dat = np.ndarray.flatten(train_rate[0][:,1,:])
 
-def gamma_dist(x,a,b):
-    if a == 0:
-        gamma_val = 1
-    else:
-        gamma_val = sp.gamma(a)
-    p = ((b**a)/gamma_val)*(x**(a-1))*(np.exp(-b*x))
+def gamma_dist(x,params):
+    p = ((params[1]**params[0])/sp.gamma(params[0]))*(x**(params[0]-1))*(np.exp(-params[1]*x))
     return p
 
 def gamma_lik(x,params): #Actually log lik
-    p = sum(np.log(gamma_dist(x[np.nonzero(x)],params[0],params[1])))
+    #p = sum(np.log(gamma_dist(x[np.nonzero(x)],params))) # Nonzero is imp because taking log
+    p = -sum(np.log(gamma_dist(x,params)))
     if np.isinf(p) + np.isnan(p):
         p = 0
     return p
 
 def gamma_lik_opti(params):
-    p = -gamma_lik(temp_dat,params)
+    p = gamma_lik(temp_dat,params)
     return p
 
+def exp_dist(x,params): # Because the others have 2 parameters
+    p = params[1]*np.exp(-params[1]*x)
+    return p
 
-# Finite difference gradient for gamma disribution
-def gamma_lik_grad(params): # Too many nested definitions :p
-    p_grad = np.zeros([1,2])[0]
-    epsi = 1e-2
-    params = np.array(params)
-    pert0 = params + np.array([epsi,0])
-    pert1 = params + np.array([0,epsi])
-    p_grad[0] = (gamma_lik_opti(pert0) - gamma_lik_opti(params))/epsi
-    p_grad[1] = (gamma_lik_opti(pert1) - gamma_lik_opti(params))/epsi
-    return p_grad
+def exp_lik(x,params):
+    #p = sum(np.log(exp_dist(x[np.nonzero(x)],params)))
+    p = -sum(np.log(exp_dist(x,params)))
+    return p
 
+def exp_lik_opti(params):
+    p = exp_lik(temp_dat,params)
+    return p
+
+def norm_dist(x,params):
+    p = (1/(np.sqrt(2*np.pi*params[1])))*np.exp(-((x-params[0])**2)/(2*params[1]))
+    return p
+
+def norm_lik(x,params):
+    #p = sum(np.log(norm_dist(x[np.nonzero(x)],params)))
+    p = -sum(np.log(norm_dist(x,params)))
+    return p
+
+def norm_lik_opti(params):
+    p = norm_lik(temp_dat,params)
+    return p
 
 # Test plot for likelihood function
-x = np.linspace(0.1,100,100)
-y = np.linspace(0.1,100,100)
-X,Y = np.meshgrid(x,y)
-Z = np.zeros(X.shape)
-for i in range(len(x)):
-    for j in range(len(y)):
-        Z[i,j] = gamma_lik_opti([x[i],y[j]])
-
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-ax.plot_wireframe(X, Y, np.log(Z), rstride=2, cstride=2)
-plt.show()
+#x = np.linspace(0.1,100,100)
+#y = np.linspace(0.1,100,100)
+#X,Y = np.meshgrid(x,y)
+#Z = np.zeros(X.shape)
+#for i in range(len(x)):
+#    for j in range(len(y)):
+#        Z[i,j] = gamma_lik_opti([x[i],y[j]])
 #
-### Shitty gradient vector code
-#arrow_x = 8
-#arrow_y = 2
-#arrow_grad = gamma_lik_grad([arrow_x,arrow_y])
-#dx = arrow_grad[0]
-#dy = arrow_grad[1]
-#plt.arrow(8,2,dx,dy)
+#fig = plt.figure()
+#ax = fig.add_subplot(111, projection='3d')
+#ax.plot_wireframe(X, Y, np.log(Z), rstride=2, cstride=2)
+#plt.show()
 
 
 
+# Fit data to distribution
 train_params = []
 all_exit_flags = []
 for taste_ind in range(len(train_spikes)):
-    train_params_temp = np.zeros((train_spikes[0].shape[1],2))
+    train_params_temp = np.zeros((train_spikes[0].shape[1],3)) # First 2 for parameters, 3rd for class of PDF
     exit_temp = np.zeros((train_spikes[0].shape[1],1))
     for nrn in range(train_spikes[0].shape[1]):
         temp_dat = np.ndarray.flatten(train_rate[taste_ind][:,nrn,:])
-        result = opt.fmin_tnc(func=gamma_lik_opti, x0=[2,1], fprime=None, approx_grad=True, bounds = [(0,100),(0,100)])
-        #result = stat.gamma.fit(temp_dat)
-        #params = np.array([result[0],result[2]])
-        params = result[0]
-        exit_flag = (result[2] == 1) + (result[2] == 2)
-        train_params_temp[nrn] = params
-        exit_temp[nrn] = exit_flag 
+        temp_dat = temp_dat[np.nonzero(temp_dat)]
+        #result = opt.fmin_tnc(func=gamma_lik_opti, x0=[2,1], fprime=None, approx_grad=True, bounds = [(0,100),(0,100)])
+        #params = result[0]
+        gam_fit = stat.gamma.fit(temp_dat)
+        gam_fit = np.array([gam_fit[0],gam_fit[2]])
+        
+        exp_fit = stat.expon.fit(temp_dat)
+        
+        nor_fit = stat.norm.fit(temp_dat)
+        
+        liks = [gamma_lik_opti(gam_fit),exp_lik_opti(exp_fit),norm_lik_opti(nor_fit)]
+        fits = [gam_fit, exp_fit, nor_fit]
+        final_fit = np.asarray(fits[np.argmin(liks)])
+        #exit_flag = (result[2] == 1) + (result[2] == 2)
+        train_params_temp[nrn,0:2] = final_fit
+        train_params_temp[nrn,2] = np.argmin(liks)
+        #exit_temp[nrn] = exit_flag 
 
     train_params.append(train_params_temp)
-    all_exit_flags.append(exit_temp)
+    #all_exit_flags.append(exit_temp)
     
+# Function that takes in x_range, parameters (with type) and spits out corresponding  plot
+def pdf_plot(x,params):
+    if params[2] == 0:
+        y = gamma_dist(x,params)
+    elif params[2] == 1:
+        y = exp_dist(x,params)
+    elif params[2] == 2:
+        y = norm_dist(x,params)
+    return y
+    
+# Function that calculates likelihood based on type of distribution
+def all_lik(x,params):
+    if params[2] == 0:
+        y = gamma_lik(x,params)
+    elif params[2] == 1:
+        y = exp_lik(x,params)
+    elif params[2] == 2:
+        y = norm_lik(x,params)
+    return y
+
+colors = ['r','g','b']
+
 ## Test plots for firing rate histogram to gamma fit
 ## *Clapping emoji*
-taste_ind = 0
+taste_ind = 3
 nrn = 0
 temp_dat = np.ndarray.flatten(train_rate[taste_ind][:,nrn,:])
 plt.hist(temp_dat,density = True)
 x = np.linspace(0,10,100)
-params = train_params[taste_ind][nrn]
-y = gamma_dist(x,params[0],params[1])
-plt.plot(x,y)
+params = train_params[taste_ind][nrn,:]
+y = pdf_plot(x,params)
+plt.plot(x,y,colors[int(params[2])])
+
+plt.plot(x,gamma_dist(x,gam_fit),x,exp_dist(x,exp_fit),x,norm_dist(x,nor_fit))
+
+# All da neurons (and plots)
+rows = len(train_rate)
+cols = train_rate[0].shape[1]
+count = 1
+x = np.linspace(0,10,100)
+fig, axes = plt.subplots(rows,cols,sharex = 'all',sharey='all')
+for i in range(rows):
+    for j in range(cols):
+        axes[i,j].hist(np.ndarray.flatten(train_rate[i][:,j,:]),density=1)
+        params = train_params[i][j]
+        y = pdf_plot(x,params)
+        axes[i,j].plot(x,y,colors[int(params[2])])
+        count +=1
+        print(count)
+
+fig.tight_layout()
     
 ## Use trained likelihood to calculate which taste is being delivered
 # 1) Take firing of all neurons from ONE TRIAL and calculate likelihood for EVERY taste
@@ -184,7 +221,8 @@ plt.plot(x,y)
 
 # Convert test_rate to an array so every trial can be fed through the loop
 test_rate_fin = np.array(test_rate) #[taste, nrn, trial, firing_rate]
-test_rate_fin = np.reshape(test_rate_fin,(28,14,35))
+dims = test_rate_fin.shape
+test_rate_fin = np.reshape(test_rate_fin,(dims[0]*dims[1],dims[2],dims[3]))
 
 test_liks = np.zeros((test_rate_fin.shape[0],len(test_rate))) # 4 numbers for every trial
 for trial in range(test_rate_fin.shape[0]): # Loop over all test trials
@@ -192,11 +230,9 @@ for trial in range(test_rate_fin.shape[0]): # Loop over all test trials
         all_nrns = np.zeros(test_rate_fin.shape[1]) # Likelihood of every nrn for 1 taste model
         for nrn in range(len(all_nrns)):    # Loop over every neuron for 1 taste models
             nrn_dat = test_rate_fin[trial,nrn,:]
-            all_nrns[nrn] = gamma_lik(nrn_dat,train_params[taste][nrn])
+            all_nrns[nrn] = all_lik(nrn_dat,train_params[taste][nrn])
         test_liks[trial,taste] = np.sum(all_nrns)
         
-decoded_taste = np.argmin(test_liks,axis=1)     
-            
-
-# Sum over all nrns in 1 trial to find probability for every trial
-all_test_liks = np.sum(np.array(all_test_liks),axis=2)
+decoded_taste = np.argmin(test_liks,axis=1)
+taste_labels = np.ndarray.flatten(np.matlib.repmat(np.array([0,1,2,3]),7,1),order='F')
+decode_accuracy = 100*sum(taste_labels==decoded_taste)/len(taste_labels)
