@@ -173,8 +173,9 @@ def bay_decode(data): # List with array for every taste
     
     colors = ['r','g','b']
     
-    ### Test plots for firing rate histogram to gamma fit
+    ### Test plots for firing rate histogram to distribution fit
     ### *Clapping emoji*
+	## Plot for given neuron an taste
 #    taste_ind = 2
 #    nrn = 0
 #    temp_dat = np.ndarray.flatten(train_rate[taste_ind][:,nrn,:])
@@ -187,7 +188,8 @@ def bay_decode(data): # List with array for every taste
 #    plt.ylabel('Empirical probability')
 #    plt.legend()
 #    #
-#    ## All da neurons (and plots)
+	## All da neurons, all da tastes, and ALL DA PLOTS!
+#    rows = len(train_rate)
 #    rows = len(train_rate)
 #    cols = train_rate[0].shape[1]
 #    count = 1
@@ -231,6 +233,7 @@ def bay_decode(data): # List with array for every taste
     
     return decode_accuracy
 
+## Run 'n' number of trials to see distribution of accuracies
 acc = np.zeros((1,10))[0]
 for i in range(len(acc)):
     acc[i] = bay_decode(control_dat)
